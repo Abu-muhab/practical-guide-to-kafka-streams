@@ -1,0 +1,70 @@
+services:
+  db:
+    image: postgres
+    container_name: fr-postgres
+    restart: always
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: abumuhab
+      POSTGRES_PASSWORD: staticvoid
+    volumes:
+      - local_pgdata:/var/lib/postgresql/data
+    networks:
+      - database
+  pgadmin:
+    image: dpage/pgadmin4
+    container_name: fr-pgadmin
+    restart: always
+    ports:
+      - "8888:80"
+    environment:
+      PGADMIN_DEFAULT_EMAIL: abumuhab98@gmail.com
+      PGADMIN_DEFAULT_PASSWORD: staticvoid
+    volumes:
+      - pgadmin-data:/var/lib/pgadmin
+    networks:
+      - database
+  broker:
+    image: apache/kafka:latest
+    container_name: broker
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://localhost:9093, PLAINTEXT_INTERNAL://0.0.0.0:9096
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092,PLAINTEXT_INTERNAL://broker:9096
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_INTERNAL:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@localhost:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_NUM_PARTITIONS: 3
+    ports:
+      - 9092:9092
+      - 9096:9096
+    networks:
+      - kafka
+  kafbat-ui:
+    container_name: kafbat-ui
+    image: ghcr.io/kafbat/kafka-ui:latest
+    depends_on:
+      - broker
+    ports:
+      - 8090:8080
+    environment:
+      DYNAMIC_CONFIG_ENABLED: 'true'
+    volumes:
+      - ./kui/config.yml:/etc/kafkaui/dynamic_config.yaml
+    networks:
+      - kafka
+volumes:
+  local_pgdata:
+  pgadmin-data:
+  redis_data:
+networks:
+  database:
+    driver: bridge
+  kafka:
+    driver: bridge

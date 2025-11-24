@@ -1,0 +1,4 @@
+kafka:
+  clusters:
+    - name: local
+      bootstrap-servers: broker:9096
