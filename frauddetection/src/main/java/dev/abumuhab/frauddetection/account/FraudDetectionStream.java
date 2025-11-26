@@ -38,7 +38,7 @@ public class FraudDetectionStream {
         KStream<String,String> userEvents = streamsBuilder.stream("user-events");
 
         // filter out transaction events to focus on created debit alert actions
-        KStream<String, Transaction> transactionsStream = transactionEventsStream
+        KStream<String, Transaction> transactionsCreatedStream = transactionEventsStream
                 .filter((key,value)-> Objects.equals(DomainEvent.extractEventNameFromJsonString(value), TransactionCreatedEvent.class.getSimpleName()))
                 .map((key, value)->{
                     TransactionCreatedEvent transactionCreatedEvent = DomainEvent.fromJsonString(value,TransactionCreatedEvent.class);
@@ -48,7 +48,7 @@ public class FraudDetectionStream {
                     Optional<Transaction> transaction = this.transactionRepository.findById(transactionCreatedEvent.getTransactionId());
                     return transaction.map(transaction1 -> KeyValue.pair(key, transaction1)).orElseGet(() -> KeyValue.pair(key, null));
                 }).filter((key,value)->value!=null);
-        KStream<String, Transaction> debitTransactionsStream = transactionsStream
+        KStream<String, Transaction> debitTransactionsStream = transactionsCreatedStream
                 .filter((key,value)-> value.getType() == TransactionType.DEBIT)
                 .selectKey((key,value)-> value.getUser().getId());
 
@@ -56,23 +56,24 @@ public class FraudDetectionStream {
         KStream<String,FraudAlert> highThresholdFraudAlertStream = debitTransactionsStream
                 .filter((key,value)-> value.getAmount() > TRANSACTION_HIGH_VALUE_THRESHOLD)
                 .map((key, value)->{
-                   final FraudAlert alert = new FraudAlert();
-                   alert.userId = value.getUser().getId();
-                   alert.reason = FraudAlertReason.HIGH_TRANSACTION_VALUE;
-                   alert.addRelatedTransaction(value.getId());
-                   return KeyValue.pair(key,alert);
+                    final FraudAlert alert = new FraudAlert();
+                    alert.userId = value.getUser().getId();
+                    alert.reason = FraudAlertReason.HIGH_TRANSACTION_VALUE;
+                    alert.addRelatedTransaction(value.getId());
+                    return KeyValue.pair(key,alert);
                 });
 
         //impossible geographic velocity alert stream
         KStream<String,FraudAlert> impossibleGeographicVelocityFraudAlertStream =debitTransactionsStream
                 .groupByKey(Grouped.with(Serdes.String(),transactionSerde))
-                .windowedBy(SlidingWindows.ofTimeDifferenceWithNoGrace(Duration.ofMinutes(1)))
+                .windowedBy(SlidingWindows.ofTimeDifferenceWithNoGrace(Duration.ofMinutes(30)))
                 .aggregate(
                         FraudAlert::new,
                         (key,value,aggregate)->{
                             aggregate.userId = value.getUser().getId();
                             aggregate.reason = FraudAlertReason.IMPOSSIBLE_GEOGRAPHIC_VELOCITY;
                             aggregate.addRelatedLocation(value.getOriginCountry());
+                            aggregate.addRelatedTransaction(value.getId());
                             return  aggregate;
                         },
                         Materialized.with(Serdes.String(),fraudAlertJsonSerde)
